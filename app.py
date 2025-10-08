@@ -1,98 +1,103 @@
 import streamlit as st
-import pandas as pd
+import tensorflow as tf
 import numpy as np
+from PIL import Image
+import pandas as pd
 import os
 from datetime import datetime
-from PIL import Image
-from deepface import DeepFace
 
-# -------------------------------
-# Setup
-# -------------------------------
-os.makedirs("photos", exist_ok=True)
-if not os.path.exists("students.csv"):
-    pd.DataFrame(columns=["student_id", "name", "photo_path"]).to_csv("students.csv", index=False)
-if not os.path.exists("attendance.csv"):
-    pd.DataFrame(columns=["date", "student_id", "name", "emotion", "time"]).to_csv("attendance.csv", index=False)
+# ---------------------------------------------------------
+# Load a lightweight model (you can host it in repo as emotion_model.h5)
+# ---------------------------------------------------------
+@st.cache_resource
+def load_model():
+    model = tf.keras.models.load_model("emotion_model.h5")
+    return model
 
-# -------------------------------
-# Emotion detection using DeepFace
-# -------------------------------
-def detect_emotion(image):
-    try:
-        img_array = np.array(image.convert("RGB"))
-        result = DeepFace.analyze(img_array, actions=["emotion"], enforce_detection=False)
-        emotion = result[0]["dominant_emotion"] if isinstance(result, list) else result["dominant_emotion"]
-        return emotion
-    except Exception as e:
-        st.warning(f"Emotion detection error: {e}")
-        return "Unknown"
+# class order for this model
+CLASS_NAMES = ["Angry", "Disgust", "Fear", "Happy", "Neutral", "Sad", "Surprise"]
 
-# -------------------------------
+# ---------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------
+def predict_emotion(image, model):
+    img = image.convert("L").resize((48,48))
+    arr = np.array(img) / 255.0
+    arr = arr.reshape(1,48,48,1)
+    preds = model.predict(arr)
+    return CLASS_NAMES[np.argmax(preds)]
+
+def ensure_files():
+    os.makedirs("photos", exist_ok=True)
+    if not os.path.exists("students.csv"):
+        pd.DataFrame(columns=["student_id","name","photo"]).to_csv("students.csv", index=False)
+    if not os.path.exists("attendance.csv"):
+        pd.DataFrame(columns=["date","student_id","name","emotion","time"]).to_csv("attendance.csv", index=False)
+
+ensure_files()
+model = load_model()
+
+# ---------------------------------------------------------
 # Streamlit UI
-# -------------------------------
+# ---------------------------------------------------------
 st.set_page_config(page_title="Emotion Attendance", layout="centered")
-st.title("🎓 Emotion-Based Attendance System (DeepFace Edition)")
+st.title("🎓 Emotion-Based Attendance (Light Edition)")
 
-tab1, tab2, tab3 = st.tabs(["🧍 Register Student", "📸 Take Attendance", "📊 Dashboard"])
+tab1, tab2, tab3 = st.tabs(["🧍 Register", "📸 Attendance", "📊 Dashboard"])
 
-# -------------------------------
-# Registration
-# -------------------------------
 with tab1:
-    st.subheader("Register New Student")
-    student_id = st.text_input("Student ID")
+    st.header("Register Student")
+    sid = st.text_input("Student ID")
     name = st.text_input("Student Name")
-    img_file = st.camera_input("Capture Student Photo")
-
+    pic = st.camera_input("Capture Photo")
     if st.button("Register"):
-        if not (student_id and name and img_file):
-            st.warning("Please fill all fields and capture a photo.")
-        else:
-            img = Image.open(img_file)
-            photo_path = f"photos/{student_id}.jpg"
-            img.save(photo_path)
-
+        if sid and name and pic:
+            img = Image.open(pic)
+            img.save(f"photos/{sid}.jpg")
             df = pd.read_csv("students.csv")
-            if student_id in df["student_id"].astype(str).values:
-                st.warning(f"Student ID {student_id} already exists.")
-            else:
-                new_row = {"student_id": student_id, "name": name, "photo_path": photo_path}
-                df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-                df.to_csv("students.csv", index=False)
-                st.success(f"{name} registered successfully!")
+            df.loc[len(df)] = [sid, name, f"photos/{sid}.jpg"]
+            df.to_csv("students.csv", index=False)
+            st.success(f"{name} registered successfully.")
+        else:
+            st.warning("Fill all fields and capture photo.")
 
-# -------------------------------
-# Attendance
-# -------------------------------
 with tab2:
-    st.subheader("Take Attendance")
-    students_df = pd.read_csv("students.csv")
-    if students_df.empty:
-        st.warning("No students registered yet.")
+    st.header("Mark Attendance")
+    df = pd.read_csv("students.csv")
+    if df.empty:
+        st.info("No students yet.")
     else:
-        selected_id = st.selectbox("Select Student ID", students_df["student_id"])
-        student_name = students_df.loc[students_df["student_id"] == selected_id, "name"].values[0]
-        img_att = st.camera_input("Capture Attendance Photo")
-
+        sid = st.selectbox("Select ID", df["student_id"])
+        photo = st.camera_input("Capture Photo for Attendance")
         if st.button("Mark Attendance"):
-            if img_att:
-                image = Image.open(img_att)
-                emotion = detect_emotion(image)
+            if photo:
+                img = Image.open(photo)
+                emotion = predict_emotion(img, model)
                 now = datetime.now()
-
                 record = {
                     "date": now.strftime("%Y-%m-%d"),
-                    "student_id": selected_id,
-                    "name": student_name,
+                    "student_id": sid,
+                    "name": df.loc[df["student_id"]==sid,"name"].values[0],
                     "emotion": emotion,
-                    "time": now.strftime("%H:%M:%S"),
+                    "time": now.strftime("%H:%M:%S")
                 }
-
-                att_df = pd.read_csv("attendance.csv")
-                att_df = pd.concat([att_df, pd.DataFrame([record])], ignore_index=True)
-                att_df.to_csv("attendance.csv", index=False)
-
-                st.success(f"Attendance marked for {student_name} ({emotion}) at {record['time']}")
+                att = pd.read_csv("attendance.csv")
+                att.loc[len(att)] = record
+                att.to_csv("attendance.csv", index=False)
+                st.success(f"Marked {record['name']} ({emotion}) at {record['time']}")
             else:
-                st.warning("Please capture an image first.")
+                st.warning("Capture an image first.")
+
+with tab3:
+    st.header("Attendance Dashboard")
+    att = pd.read_csv("attendance.csv")
+    if att.empty:
+        st.info("No records yet.")
+    else:
+        st.dataframe(att)
+        today = datetime.now().strftime("%Y-%m-%d")
+        today_df = att[att["date"]==today]
+        if not today_df.empty:
+            st.bar_chart(today_df["emotion"].value_counts())
+        csv = att.to_csv(index=False).encode("utf-8")
+        st.download_button("📥 Download CSV", csv, "attendance.csv", "text/csv")
