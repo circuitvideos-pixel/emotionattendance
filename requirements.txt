@@ -1,8 +1,6 @@
 streamlit
-fer
+deepface
 opencv-python-headless
 numpy
 pandas
 pillow
-moviepy
-
