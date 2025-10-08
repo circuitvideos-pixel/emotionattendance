@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import cv2
 import os
 from datetime import datetime
 from PIL import Image
@@ -21,9 +20,8 @@ if not os.path.exists("attendance.csv"):
 # -------------------------------
 def detect_emotion(image):
     try:
-        img_array = np.array(image)
-        rgb = cv2.cvtColor(img_array, cv2.COLOR_BGR2RGB)
-        result = DeepFace.analyze(rgb, actions=["emotion"], enforce_detection=False)
+        img_array = np.array(image.convert("RGB"))
+        result = DeepFace.analyze(img_array, actions=["emotion"], enforce_detection=False)
         emotion = result[0]["dominant_emotion"] if isinstance(result, list) else result["dominant_emotion"]
         return emotion
     except Exception as e:
@@ -98,22 +96,3 @@ with tab2:
                 st.success(f"Attendance marked for {student_name} ({emotion}) at {record['time']}")
             else:
                 st.warning("Please capture an image first.")
-
-# -------------------------------
-# Dashboard
-# -------------------------------
-with tab3:
-    st.subheader("📊 Attendance Dashboard")
-    if os.path.exists("attendance.csv"):
-        att_df = pd.read_csv("attendance.csv")
-        if att_df.empty:
-            st.info("No attendance records yet.")
-        else:
-            st.dataframe(att_df)
-            today = datetime.now().strftime("%Y-%m-%d")
-            today_df = att_df[att_df["date"] == today]
-            if not today_df.empty:
-                emotion_counts = today_df["emotion"].value_counts()
-                st.bar_chart(emotion_counts)
-    else:
-        st.warning("No attendance file found.")
