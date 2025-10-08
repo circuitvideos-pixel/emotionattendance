@@ -1,7 +1,8 @@
 streamlit
 fer
 opencv-python-headless
-mtcnn
 numpy
 pandas
 pillow
+moviepy
+
