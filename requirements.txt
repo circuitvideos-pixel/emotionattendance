@@ -1,6 +1,5 @@
 streamlit
 deepface
-opencv-python-headless
 numpy
 pandas
 pillow
