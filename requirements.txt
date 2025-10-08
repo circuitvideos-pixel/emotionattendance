@@ -1,6 +1,5 @@
 streamlit
 fer
-face-recognition
 opencv-python-headless
 mtcnn
 numpy
