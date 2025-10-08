@@ -3,51 +3,46 @@ import pandas as pd
 import numpy as np
 import cv2
 import os
-from fer import FER
 from datetime import datetime
 from PIL import Image
+from deepface import DeepFace
 
 # -------------------------------
-# Setup folders and CSVs
+# Setup
 # -------------------------------
 os.makedirs("photos", exist_ok=True)
-
 if not os.path.exists("students.csv"):
     pd.DataFrame(columns=["student_id", "name", "photo_path"]).to_csv("students.csv", index=False)
-
 if not os.path.exists("attendance.csv"):
     pd.DataFrame(columns=["date", "student_id", "name", "emotion", "time"]).to_csv("attendance.csv", index=False)
 
-# Initialize FER detector
-emotion_detector = FER(mtcnn=True)
-
 # -------------------------------
-# Helper functions
+# Emotion detection using DeepFace
 # -------------------------------
 def detect_emotion(image):
-    img_array = np.array(image)
-    rgb = cv2.cvtColor(img_array, cv2.COLOR_BGR2RGB)
-    result = emotion_detector.detect_emotions(rgb)
-    if result:
-        emotions = result[0]["emotions"]
-        dominant = max(emotions, key=emotions.get)
-        return dominant
-    return "Unknown"
+    try:
+        img_array = np.array(image)
+        rgb = cv2.cvtColor(img_array, cv2.COLOR_BGR2RGB)
+        result = DeepFace.analyze(rgb, actions=["emotion"], enforce_detection=False)
+        emotion = result[0]["dominant_emotion"] if isinstance(result, list) else result["dominant_emotion"]
+        return emotion
+    except Exception as e:
+        st.warning(f"Emotion detection error: {e}")
+        return "Unknown"
 
 # -------------------------------
 # Streamlit UI
 # -------------------------------
-st.set_page_config(page_title="Emotion-Based Attendance", layout="centered")
-st.title("🎓 Emotion-Based Attendance System (GenAI Pioneer Labs)")
+st.set_page_config(page_title="Emotion Attendance", layout="centered")
+st.title("🎓 Emotion-Based Attendance System (DeepFace Edition)")
 
 tab1, tab2, tab3 = st.tabs(["🧍 Register Student", "📸 Take Attendance", "📊 Dashboard"])
 
 # -------------------------------
-# Tab 1: Registration
+# Registration
 # -------------------------------
 with tab1:
     st.subheader("Register New Student")
-
     student_id = st.text_input("Student ID")
     name = st.text_input("Student Name")
     img_file = st.camera_input("Capture Student Photo")
@@ -62,7 +57,7 @@ with tab1:
 
             df = pd.read_csv("students.csv")
             if student_id in df["student_id"].astype(str).values:
-                st.warning(f"Student ID {student_id} already registered.")
+                st.warning(f"Student ID {student_id} already exists.")
             else:
                 new_row = {"student_id": student_id, "name": name, "photo_path": photo_path}
                 df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
@@ -70,20 +65,16 @@ with tab1:
                 st.success(f"{name} registered successfully!")
 
 # -------------------------------
-# Tab 2: Attendance
+# Attendance
 # -------------------------------
 with tab2:
-    st.subheader("Take Attendance with Emotion Detection")
-
+    st.subheader("Take Attendance")
     students_df = pd.read_csv("students.csv")
     if students_df.empty:
         st.warning("No students registered yet.")
     else:
         selected_id = st.selectbox("Select Student ID", students_df["student_id"])
-        student_name = students_df.loc[
-            students_df["student_id"] == selected_id, "name"
-        ].values[0]
-
+        student_name = students_df.loc[students_df["student_id"] == selected_id, "name"].values[0]
         img_att = st.camera_input("Capture Attendance Photo")
 
         if st.button("Mark Attendance"):
@@ -104,32 +95,25 @@ with tab2:
                 att_df = pd.concat([att_df, pd.DataFrame([record])], ignore_index=True)
                 att_df.to_csv("attendance.csv", index=False)
 
-                st.success(
-                    f"Attendance marked for {student_name} ({emotion}) at {record['time']}"
-                )
+                st.success(f"Attendance marked for {student_name} ({emotion}) at {record['time']}")
             else:
                 st.warning("Please capture an image first.")
 
 # -------------------------------
-# Tab 3: Dashboard
+# Dashboard
 # -------------------------------
 with tab3:
     st.subheader("📊 Attendance Dashboard")
-
     if os.path.exists("attendance.csv"):
         att_df = pd.read_csv("attendance.csv")
         if att_df.empty:
             st.info("No attendance records yet.")
         else:
             st.dataframe(att_df)
-
-            st.markdown("### Emotion Summary for Today")
             today = datetime.now().strftime("%Y-%m-%d")
             today_df = att_df[att_df["date"] == today]
             if not today_df.empty:
                 emotion_counts = today_df["emotion"].value_counts()
                 st.bar_chart(emotion_counts)
-            else:
-                st.info("No attendance marked for today yet.")
     else:
         st.warning("No attendance file found.")
